@@ -1,0 +1,83 @@
+---
+- name: Launch an EC2 instance
+  hosts: localhost
+  gather_facts: no
+  vars:
+    instance_type: t2.micro
+    keypair: WebServerKeyPair   # Ensure you already have this keypair in AWS
+    region: us-east-1
+    ami: ami-0182f373e66f89c85  # Ensure the AMI ID is correct for the region
+    security_groups:            # Pre-existing security group that allows HTTP/HTTPS and SSH access
+      - SecurityGroupWebServer
+    vpc_subnet_id: subnet-05480cc3fa5d7692c
+    instance_name: MyWebServer
+
+  tasks:
+    - name: Search for existing EC2 instances with the name 'MyWebServer'
+      amazon.aws.ec2_instance_info:
+        filters:
+          "tag:Name": "{{ instance_name }}"
+        region: "{{ region }}"
+      register: ec2_info
+
+    - name: Debug EC2 info retrieved
+      debug:
+        var: ec2_info
+
+    - name: Filter only running instances
+      set_fact:
+        running_instances: "{{ ec2_info.instances | selectattr('state.name', 'equalto', 'running') | list }}"
+
+    - name: Debug running instances
+      debug:
+        var: running_instances
+
+    - name: Create EC2 instance if no running instances found
+      amazon.aws.ec2_instance:
+        key_name: "{{ keypair }}"
+        instance_type: "{{ instance_type }}"
+        image_id: "{{ ami }}"
+        region: "{{ region }}"
+        security_groups: "{{ security_groups }}"
+        vpc_subnet_id: "{{ vpc_subnet_id }}" 
+        tags:
+          Name: "{{ instance_name }}"
+        wait: yes
+        count: 1
+        network:
+          assign_public_ip: yes
+      when: running_instances | length == 0
+      register: ec2
+      notify: add_instance_to_hosts
+      notify: wait_for_ssh
+
+    - name: Add existing EC2 instance to the hosts group (if found)
+      add_host:
+        hostname: >-
+          {{
+            running_instances[0].public_ip_address
+            if running_instances | length > 0 and running_instances[0].public_ip_address is defined
+            else 'none'
+          }}
+        groupname: webservers
+      when: running_instances | length > 0 and (running_instances[0].public_dns_name is defined or running_instances[0].public_ip_address is defined)
+
+    - name: Debug EC2 instance info if created
+      debug:
+        var: ec2
+      when: ec2 is defined
+
+  handlers:
+    - name: add_instance_to_hosts
+      add_host:
+        hostname: "{{ ec2.instances[0].public_dns_name | default(ec2.instances[0].public_ip_address) }}"
+        groupname: webservers
+
+    - name: wait_for_ssh
+      wait_for:
+        host: "{{ ec2.instances[0].public_dns_name | default(ec2.instances[0].public_ip_address) }}"
+        port: 22
+        delay: 60
+        timeout: 800
+        state: started
+      when: ec2 is defined

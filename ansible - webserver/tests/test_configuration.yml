@@ -1,0 +1,12 @@
+---
+- hosts: webservers
+  tasks:
+    - name: Test HTTP to HTTPS redirection
+      uri:
+        url: http://{{ ansible_host }}
+        follow_redirects: all
+        validate_certs: false
+      register: result
+    - assert:
+        that:
+          - "'https' in result.url"

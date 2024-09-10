@@ -1,0 +1,24 @@
+---
+- hosts: webservers
+  tasks:
+    - name: Check if Apache is running
+      service_facts:
+    - assert:
+        that:
+          - "'apache2' in services"
+          - "services['apache2'].state == 'running'"
+
+    - name: Check if HTTPS port is open
+      wait_for:
+        port: 443
+        host: "{{ ansible_host }}"
+        timeout: 5
+
+    - name: Test SSL certificate
+      uri:
+        url: https://{{ ansible_host }}
+        validate_certs: false
+      register: result
+    - assert:
+        that:
+          - "'Hello World' in result.content"

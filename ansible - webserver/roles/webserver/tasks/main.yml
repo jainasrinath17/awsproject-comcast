@@ -1,0 +1,57 @@
+---
+- name: Install Apache (httpd)
+  homebrew:
+    name: httpd
+    state: present
+
+- name: Install OpenSSL
+  homebrew:
+    name: openssl
+    state: present
+
+- name: Ensure Apache (httpd) is started
+  service:
+    name: httpd
+    state: started
+    enabled: true
+
+- name: Create document root directory
+  file:
+    path: /usr/local/var/www
+    state: directory
+    owner: www
+    group: staff
+
+- name: Copy index.html to web root
+  copy:
+    src: index.html
+    dest: /usr/local/var/www/index.html
+    owner: www
+    group: staff
+
+- name: Generate self-signed SSL certificate
+  command: "/usr/local/opt/openssl/bin/openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /usr/local/etc/httpd/server.key -out /usr/local/etc/httpd/server.crt -subj '/C=US/ST=State/L=City/O=Organization/OU=OrgUnit/CN=example.com'"
+
+- name: Configure Apache for SSL
+  template:
+    src: ssl.conf.j2
+    dest: /usr/local/etc/httpd/extra/httpd-ssl.conf
+
+- name: Enable SSL module and restart Apache
+  block:
+    - name: Load SSL module
+      lineinfile:
+        path: /usr/local/etc/httpd/httpd.conf
+        insertafter: '^#LoadModule ssl_module'
+        line: 'LoadModule ssl_module libexec/mod_ssl.so'
+
+    - name: Enable SSL site
+      lineinfile:
+        path: /usr/local/etc/httpd/httpd.conf
+        insertafter: '^#Include /usr/local/etc/httpd/extra/httpd-ssl.conf'
+        line: 'Include /usr/local/etc/httpd/extra/httpd-ssl.conf'
+
+    - name: Restart Apache (httpd)
+      service:
+        name: httpd
+        state: restarted
